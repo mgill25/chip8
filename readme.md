@@ -34,3 +34,8 @@ Chip-8 is an intermediate programming langauge which runs on the Chip-8 Virtual 
 
 - Made to allow video games to be easily programmable.
 - A large number of classic video games have been ported to Chip-8, such as Pong, Space Invaders, Tetris, Pac-Man.
+
+## Credits
+I took the structure of the code from the work done by Gynvael in C++.
+
+Go [here](https://gaming.youtube.com/channel/UCCkVMojdBWS-JtH7TliWkVg) for Gynvael's screencasts.
