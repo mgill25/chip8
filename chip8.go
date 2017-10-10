@@ -88,7 +88,7 @@ func (chip *Chip8) Reset() {
 	for i := 0; i < 16; i++ {
 		chip.V[i] = 0
 	}
-	chip.I[0] = 0
+	chip.I = 0
 
 	// TODO: Add timer initialization
 
