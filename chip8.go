@@ -8,6 +8,7 @@ import (
 	"github.com/veandco/go-sdl2/sdl"
 )
 
+// Chip8 VM memory and register layout.
 type Chip8 struct {
 	Mem           [4096]byte
 	V             [16]byte // V0 to VF 	(TODO: Can we have aliases?)
@@ -21,13 +22,14 @@ type Chip8 struct {
 	OpcodeTable []OpcodeTableEntry
 }
 
+// OpcodeTableEntry Defines a single opcode, its mask and corresponding handler
 type OpcodeTableEntry struct {
 	opcode  uint16
 	mask    uint16
 	Handler func(uint16)
 }
 
-// CTor
+// NewChip8 CTor
 func NewChip8() *Chip8 {
 	newChip := new(Chip8)
 	newChip.InitializeOpcodeTable()
@@ -35,9 +37,9 @@ func NewChip8() *Chip8 {
 	return newChip
 }
 
+// InitializeOpcodeTable Initialize each opcode with its AND mask, and
+// the corresponding opcode handler function.
 func (chip *Chip8) InitializeOpcodeTable() {
-	// Initialize each opcode with its AND mask, and
-	// the corresponding opcode handler function.
 	chip.OpcodeTable = []OpcodeTableEntry{
 		{ /* 0x0NNN */ 0x0000, 0xF000, chip.Opcode0NNN},
 		{ /* 0x00E0 */ 0x00E0, 0xFFFF, chip.Opcode00E0},
@@ -98,13 +100,14 @@ func (chip *Chip8) Reset() {
 	}
 }
 
-// Can be run in a separate goroutine
+// MainLoop Can be run in a separate goroutine
 func (chip *Chip8) MainLoop() {
 	for {
 		time.Sleep(1000 * time.Millisecond)
 	}
 }
 
+// VMThreadFunc launches the main loop
 func VMThreadFunc(vm *Chip8) {
 	vm.MainLoop()
 }
@@ -126,9 +129,9 @@ func main() {
 	defer f.Close()
 
 	// Load all the file data into a buffer
-	const DAT_SIZE = 4096 - 512
-	const PIXEL_SIZE = 16
-	buffer := make([]byte, DAT_SIZE)
+	const datSize = 4096 - 512
+	const pixelSize = 16
+	buffer := make([]byte, datSize)
 	n, err := f.Read(buffer)
 	Check(err)
 
@@ -151,7 +154,7 @@ func main() {
 	Check(err)
 	defer sdl.Quit()
 
-	window, err := sdl.CreateWindow("CHIP8", sdl.WINDOWPOS_CENTERED, sdl.WINDOWPOS_CENTERED, 64*PIXEL_SIZE, 32*PIXEL_SIZE, sdl.WINDOW_SHOWN)
+	window, err := sdl.CreateWindow("CHIP8", sdl.WINDOWPOS_CENTERED, sdl.WINDOWPOS_CENTERED, 64*pixelSize, 32*pixelSize, sdl.WINDOW_SHOWN)
 	Check(err)
 	defer window.Destroy()
 
