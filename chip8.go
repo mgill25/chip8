@@ -3,23 +3,30 @@ package main
 import (
 	"fmt"
 	"os"
-	"time"
 
+	"github.com/golang-collections/collections/stack"
 	"github.com/veandco/go-sdl2/sdl"
 )
 
 // Chip8 VM memory and register layout.
 type Chip8 struct {
-	Mem           [4096]byte
-	V             [16]byte // V0 to VF 	(TODO: Can we have aliases?)
-	I             uint16
-	PC            uint16
-	Stack         [16]uint16
-	SP            byte
-	DelayRegister byte
-	SoundTimer    byte
-
-	OpcodeTable []OpcodeTableEntry
+	Mem            [4096]byte
+	V              [16]byte // V0 to VF
+	I              uint16
+	PC             uint16
+	Stack          [16]uint16
+	SP             byte
+	DelayRegister  byte
+	CallStack      stack.Stack // In case this fails, just use 0xEA0-0xEFF area for the stack.
+	KeyPressed     [0x10]bool
+	LastKeyPressed int
+	SoundTimer     uint8
+	DelayTimer     uint8
+	ScreenWidth    uint32
+	ScreenHeight   uint32
+	Screen         []uint8
+	FrameBuffer    [64 * 32]byte
+	OpcodeTable    []OpcodeTableEntry
 }
 
 // OpcodeTableEntry Defines a single opcode, its mask and corresponding handler
@@ -79,8 +86,8 @@ func (chip *Chip8) InitializeOpcodeTable() {
 }
 
 // Reset - what are the start /reset/reboot values for the computer?
-func (chip *Chip8) Reset() {
-	chip.PC = 0x200 // or 512. Lets assume pc starts here for now.
+func (chip8 *Chip8) Reset() {
+	chip8.PC = 0x200 // or 512. Lets assume pc starts here for now.
 	// http://devernay.free.fr/hacks/chip8/C8TECH10.HTM#0.1
 	//  +---------------+= 0x200 (512) Start of most Chip-8 programs
 
@@ -88,28 +95,71 @@ func (chip *Chip8) Reset() {
 	// Do it again here outside the constructor/initialization time,
 	// since anyone can reset at any time.
 	for i := 0; i < 16; i++ {
-		chip.V[i] = 0
+		chip8.V[i] = 0
 	}
-	chip.I = 0
 
-	// TODO: Add timer initialization
+	chip8.I = 0
+
+	chip8.DelayTimer = 0
+	chip8.SoundTimer = 0
 
 	// Zero the memory
 	for i := 0; i < 4096; i++ {
-		chip.Mem[i] = 0
+		chip8.Mem[i] = 0
+	}
+
+	chip8.LastKeyPressed = -1
+	for i := 0; i < 0x10; i++ {
+		chip8.KeyPressed[i] = false
 	}
 }
 
 // MainLoop Can be run in a separate goroutine
-func (chip *Chip8) MainLoop() {
+func (chip8 *Chip8) MainLoop(done chan bool) {
+	lastTicks := sdl.GetTicks() // uint32
+
 	for {
-		time.Sleep(1000 * time.Millisecond)
+		// Handle Timers
+		now := sdl.GetTicks()
+
+		// Timer is 60Hz 60Hz = 1/60 = 0.016seconds = 16 milliseconds
+		// Ticks are in milliseconds
+		if now-lastTicks > 16 {
+			diff := now - lastTicks
+			timerTicks := diff / 16
+			chip8.DelayTimer = uint8(Max(0, int(chip8.DelayTimer)-int(timerTicks)))
+			chip8.SoundTimer = uint8(Max(0, int(chip8.SoundTimer)-int(timerTicks)))
+			lastTicks = (now - diff) % 16 // Take into account "unused time"
+		}
+
+		// Execute the instruction.
+		var opcode uint16
+		if chip8.PC+1 >= 4096 {
+			fmt.Println("Error: PC out of bounds (%.4x)", chip8.PC)
+			return
+		}
+
+		opcode = uint16(chip8.Mem[chip8.PC] << 8) // Big endian
+		opcode |= uint16(chip8.Mem[chip8.PC+1])
+		chip8.PC += 2
+
+		for _, entry := range chip8.OpcodeTable {
+			if (opcode & entry.mask) == entry.opcode {
+				handler := entry.Handler
+				handler(opcode)
+				break
+			}
+		}
+
+		sdl.Delay(1) // TODO: Remove to allow VM to run at full speed.
 	}
+
+	done <- true
 }
 
 // VMThreadFunc launches the main loop
-func VMThreadFunc(vm *Chip8) {
-	vm.MainLoop()
+func VMThreadFunc(vm *Chip8, done chan bool) {
+	vm.MainLoop(done)
 }
 
 func main() {
@@ -173,7 +223,8 @@ func main() {
 	// fmt.Println(surface.W, surface.Pitch)
 
 	// Launch the VM in a separate goroutine (a separate thread)
-	go VMThreadFunc(VM)
+	done := make(chan bool)
+	go VMThreadFunc(VM, done)
 
 	pixels := surface.Pixels()
 	pixels[256*surface.Pitch+512*4] = 0xff // a blue pixel. Each pixel == 4 bytes, blue, green, red, alpha
@@ -184,9 +235,51 @@ func main() {
 		case *sdl.QuitEvent:
 			fmt.Println("t: ", t)
 			break
+		case *sdl.KeyUpEvent, *sdl.KeyDownEvent:
+			e1ok, e2ok, pressed := false, false, false
+			var e1 sdl.KeyUpEvent
+			var e2 sdl.KeyDownEvent
+
+			e1, e1ok = event.(sdl.KeyUpEvent)
+
+			if !e1ok {
+				e2, e2ok = event.(sdl.KeyDownEvent)
+			}
+
+			if e1ok || e2ok {
+				idx := -1
+				// Some type of comparison to check that we got either a valid e1 or e2 event.
+				if e1ok {
+					idx = TranslateCodeToIndex(e1.Keysym.Sym)
+					pressed = bool(e1.State == sdl.PRESSED)
+				} else if e2ok {
+					idx = TranslateCodeToIndex(e2.Keysym.Sym)
+					pressed = bool(e2.State == sdl.PRESSED)
+				}
+
+				if idx != -1 {
+					VM.KeyPressed[idx] = pressed
+
+					if pressed {
+						VM.LastKeyPressed = idx
+					} else {
+						allKeysReleased := true
+
+						for i := 0; i < 0x10; i++ {
+							if VM.KeyPressed[i] {
+								allKeysReleased = false
+								break
+							}
+						}
+
+						if allKeysReleased {
+							VM.LastKeyPressed = -1
+						}
+					}
+				}
+			}
 		}
 	}
 	window.UpdateSurface()
-
-	time.Sleep(3000 * time.Millisecond)
+	<-done
 }
