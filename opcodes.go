@@ -9,6 +9,8 @@ import (
 // Opcode Definitions
 
 func (chip8 *Chip8) Opcode0NNN(opcode uint16) {
+	// TODO: This is probably not implemented correctly.
+	chip8.Opcode2NNN(opcode)
 }
 
 // Opcode00E0 Clears the screen

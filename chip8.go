@@ -135,7 +135,8 @@ func (chip8 *Chip8) MainLoop(done chan bool) {
 		// Execute the instruction.
 		var opcode uint16
 		if chip8.PC+1 >= 4096 {
-			fmt.Println("Error: PC out of bounds (%.4x)", chip8.PC)
+			fmt.Printf("Error: PC out of bounds (%.4x)\n", chip8.PC)
+			fmt.Printf("Opcode: %.4x\n", opcode)
 			return
 		}
 
@@ -145,6 +146,7 @@ func (chip8 *Chip8) MainLoop(done chan bool) {
 
 		for _, entry := range chip8.OpcodeTable {
 			if (opcode & entry.mask) == entry.opcode {
+				fmt.Printf("[PC = %.4x, entry.opcode = %.4x, entry.mask = %.4x]\n", chip8.PC, entry.opcode, entry.mask)
 				handler := entry.Handler
 				handler(opcode)
 				break
