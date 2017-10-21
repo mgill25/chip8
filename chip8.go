@@ -140,13 +140,26 @@ func (chip8 *Chip8) MainLoop(done chan bool) {
 			return
 		}
 
-		opcode = uint16(chip8.Mem[chip8.PC] << 8) // Big endian
-		opcode |= uint16(chip8.Mem[chip8.PC+1])
+		// Fetch the opcode (2 bytes long) by combining 2 individual bytes
+		opcode = uint16(chip8.Mem[chip8.PC] << 8) // Big endian. Shift left 8 bits
+		opcode |= uint16(chip8.Mem[chip8.PC+1])   // Merge them using bitwise-OR
+
+		/* Example
+				Opcode: 0xA2F0 => 0xA2 and 0xF0 at PC and PC + 1
+				0xA2       	0xA2 << 8 = 0xA200   	HEX
+				10100010   	1010001000000000     	BIN
+
+				Then do a bitwise-OR to combine them.
+				1010001000000000 | // 0xA200
+		                11110000 = // 0xF0 (0x00F0)
+				------------------
+				1010001011110000   // 0xA2F0
+		*/
 		chip8.PC += 2
 
 		for _, entry := range chip8.OpcodeTable {
 			if (opcode & entry.mask) == entry.opcode {
-				fmt.Printf("[PC = %.4x, entry.opcode = %.4x, entry.mask = %.4x]\n", chip8.PC, entry.opcode, entry.mask)
+				// fmt.Printf("[PC = %.4x, entry.opcode = %.4x, entry.mask = %.4x]\n", chip8.PC, entry.opcode, entry.mask)
 				handler := entry.Handler
 				handler(opcode)
 				break
@@ -157,6 +170,34 @@ func (chip8 *Chip8) MainLoop(done chan bool) {
 	}
 
 	done <- true
+}
+
+func (chip8 *Chip8) ReadMemoryImage(fname string) {
+	file, err := os.Open(fname)
+	Check(err)
+	defer file.Close()
+
+	// Load all the file data into a buffer
+	const datSize = 4096 - 512
+	buffer := make([]byte, datSize)
+	n, err := file.Read(buffer)
+	Check(err)
+
+	if n == 0 {
+		fmt.Println("Failed to read the RAM image")
+		os.Exit(2)
+	} else {
+		fmt.Printf("Read %d bytes\n", n)
+	}
+
+	// Copy from this temporary buffer into the chip memory
+	// Rather than iterating over the entire length of the buffer we have allocated,
+	// only iterate over only the number of bytes read.
+
+	copy(chip8.Mem[512:], buffer)
+	// for i := 0; i < n; i++ {
+	// 	chip8.Mem[512+i] = buffer[i]
+	// }
 }
 
 // VMThreadFunc launches the main loop
@@ -171,41 +212,18 @@ func main() {
 		os.Exit(2)
 	}
 	fname := os.Args[1]
-	fmt.Println("ROM file name is:", fname)
-	fmt.Println("Initializing the Virtual Machine.")
+
 	VM := NewChip8()
-	fmt.Println("Reading the input file.")
+	fmt.Println("Initializing the Virtual Machine.")
 
-	f, err := os.Open(fname)
-	Check(err)
-	defer f.Close()
-
-	// Load all the file data into a buffer
-	const datSize = 4096 - 512
-	const pixelSize = 16
-	buffer := make([]byte, datSize)
-	n, err := f.Read(buffer)
-	Check(err)
-
-	if n == 0 {
-		fmt.Println("Failed to read the RAM image")
-		os.Exit(2)
-	}
-
-	// Copy from this temporary buffer into the chip memory
-	// Rather than iterating over the entire length of the buffer we have allocated,
-	// only iterate over only the number of bytes read.
-	for i := 0; i < n; i++ {
-		VM.Mem[512+i] = buffer[i]
-	}
-
-	// fmt.Println(n, "bytes read", VM.Mem)
+	VM.ReadMemoryImage(fname)
 
 	// https://github.com/veandco/go-sdl2
-	err = sdl.Init(sdl.INIT_VIDEO | sdl.INIT_AUDIO | sdl.INIT_TIMER)
+	err := sdl.Init(sdl.INIT_EVERYTHING)
 	Check(err)
 	defer sdl.Quit()
 
+	const pixelSize = 16
 	window, err := sdl.CreateWindow("CHIP8", sdl.WINDOWPOS_CENTERED, sdl.WINDOWPOS_CENTERED, 64*pixelSize, 32*pixelSize, sdl.WINDOW_SHOWN)
 	Check(err)
 	defer window.Destroy()
@@ -216,13 +234,14 @@ func main() {
 	}
 
 	// TODO: Read up on VSync and accelerated renderer.
-	sdlRenderer, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_SOFTWARE)
+	sdlRenderer, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_ACCELERATED)
 	Check(err)
 	defer sdlRenderer.Destroy()
 
 	surface, err := window.GetSurface()
 	Check(err)
 	// fmt.Println(surface.W, surface.Pitch)
+	VM.SetScreenBuffer(surface.Pixels(), uint32(surface.W), uint32(surface.H))
 
 	// Launch the VM in a separate goroutine (a separate thread)
 	done := make(chan bool)

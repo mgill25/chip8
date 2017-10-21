@@ -27,7 +27,8 @@ Good introductory resources:
 	[3] http://devernay.free.fr/hacks/chip8/C8TECH10.HTM
 	[4] http://mattmik.com/files/chip8/mastering/chip8.html
 	[5] https://stackoverflow.com/questions/448673/how-do-emulators-work-and-how-are-they-written
-
+	[6] http://www.multigesture.net/articles/how-to-write-an-emulator-chip-8-interpreter/
+	
 ## Beginner VM - [Chip-8](https://en.wikipedia.org/wiki/CHIP-8)
 
 Chip-8 is an intermediate programming langauge which runs on the Chip-8 Virtual Machine.
